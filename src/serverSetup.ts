@@ -148,7 +148,7 @@ export async function installCodeServer(
             logger.trace('[serverSetup] Command length (8191 max): ' + command.length);
 
             if (command.length > 8191) {
-                throw new ServerInstallError(`Command line too long`);
+                throw new ServerInstallError('Command line too long');
             }
         } else {
             throw new ServerInstallError(`Not supported shell: ${shell}`);
@@ -163,10 +163,10 @@ export async function installCodeServer(
         logger.trace('[serverSetup] Server install script content:\n' + installServerScript);
 
         const remoteScriptName = `${vscodeServerConfig.commit}-${scriptId}.sh`;
-        const remoteScriptPath = `$HOME/${vscodeServerConfig.serverDataFolderName}/install/${remoteScriptName}`;
+        const remoteScriptPath = `${vscodeServerConfig.serverDataFolderName}/install/${remoteScriptName}`;
         const endRegex = new RegExp(`${scriptId}: end`);
 
-        logger.trace('[serverSetup] remote script path:\n' + remoteScriptPath);
+        logger.trace('[serverSetup] remote script path (relative to HOME):\n' + remoteScriptPath);
 
         const command = buildUnixInstallCommand(installServerScript, remoteScriptPath, scriptId);
 
@@ -183,7 +183,7 @@ export async function installCodeServer(
     const resultMap = parseServerInstallOutput(commandOutput.stdout, scriptId);
     if (!resultMap) {
         logger.trace('[serverSetup] Failed to parse install script output. Raw stdout:\n' + commandOutput.stdout);
-        throw new ServerInstallError(`Failed parsing install script output`);
+        throw new ServerInstallError('Failed parsing install script output');
     }
 
     logger.trace('[serverSetup] parsed install result map: ' + JSON.stringify(resultMap));
@@ -260,26 +260,31 @@ function parseServerInstallOutput(str: string, scriptId: string): { [k: string]:
 
 function buildUnixInstallCommand(scriptContent: string, remoteScriptPath: string, scriptId: string): string {
     const scriptBase64 = Buffer.from(scriptContent, 'utf8').toString('base64');
-    const remoteDir = remoteScriptPath.replace(/\/[^/]+$/, '');
+
+    const normalizedPath = remoteScriptPath.replace(/^\/+/, '');
+    const pathParts = normalizedPath.split('/').filter(Boolean);
+
+    const pythonListLiteral = `[${pathParts.map(part => `'${escapeForPythonSingleQuoted(part)}'`).join(', ')}]`;
 
     const pythonCode =
-        `import base64, os, pathlib; ` +
-        `p = pathlib.Path(os.path.expandvars('${escapeForPythonSingleQuoted(remoteScriptPath)}')); ` +
-        `p.parent.mkdir(parents=True, exist_ok=True); ` +
-        `p.write_bytes(base64.b64decode('${scriptBase64}')); ` +
-        `print('[serverSetup:${scriptId}] python3 wrote script to ' + str(p))`;
+        `import base64, pathlib; ` +
+        `parts = ${pythonListLiteral}; ` +
+        `p = pathlib.Path.home(); ` +
+        `for part in parts[:-1]: p = p / part; ` +
+        `p.mkdir(parents=True, exist_ok=True); ` +
+        `f = p / parts[-1]; ` +
+        `f.write_bytes(base64.b64decode('${scriptBase64}')); ` +
+        `print('[serverSetup:${scriptId}] python3 wrote script to ' + str(f))`;
 
     return [
         `echo "[serverSetup:${scriptId}] begin remote command"`,
-        `echo "[serverSetup:${scriptId}] target script path: ${escapeForDoubleQuotedEcho(remoteScriptPath)}"`,
-        `mkdir -p "${escapeForDoubleQuotedEcho(remoteDir)}"`,
-        `echo "[serverSetup:${scriptId}] ensured install dir: ${escapeForDoubleQuotedEcho(remoteDir)}"`,
+        `echo "[serverSetup:${scriptId}] target script path: $HOME/${escapeForDoubleQuotedEcho(remoteScriptPath)}"`,
         `python3 -c "${escapeForDoubleQuotedPython(pythonCode)}"`,
         `echo "[serverSetup:${scriptId}] checking script file existence"`,
-        `ls -l "${escapeForDoubleQuotedEcho(remoteScriptPath)}"`,
-        `chmod 700 "${escapeForDoubleQuotedEcho(remoteScriptPath)}"`,
+        `ls -l "$HOME/${escapeForDoubleQuotedEcho(remoteScriptPath)}"`,
+        `chmod 700 "$HOME/${escapeForDoubleQuotedEcho(remoteScriptPath)}"`,
         `echo "[serverSetup:${scriptId}] chmod done, invoking bash"`,
-        `bash "${escapeForDoubleQuotedEcho(remoteScriptPath)}"`
+        `bash "$HOME/${escapeForDoubleQuotedEcho(remoteScriptPath)}"`
     ].join(' ; ');
 }
 
@@ -288,7 +293,7 @@ function escapeForPythonSingleQuoted(value: string): string {
 }
 
 function escapeForDoubleQuotedEcho(value: string): string {
-    return value.replace(/(["\\$`])/g, '\\$1');
+    return value.replace(/(["\\`])/g, '\\$1');
 }
 
 function escapeForDoubleQuotedPython(value: string): string {
@@ -312,7 +317,7 @@ function generateBashInstallScript({
     serverDataFolderName,
     serverDownloadUrlTemplate
 }: ServerInstallOptions) {
-    const extensions = extensionIds.map(id => '--install-extension ' + id).join(' ');
+    const extensions = extensionIds.map(extensionId => '--install-extension ' + extensionId).join(' ');
 
     return `
 #!/usr/bin/env bash
@@ -612,7 +617,7 @@ function generatePowerShellInstallScript({
     serverDataFolderName,
     serverDownloadUrlTemplate
 }: ServerInstallOptions) {
-    const extensions = extensionIds.map(id => '--install-extension ' + id).join(' ');
+    const extensions = extensionIds.map(extensionId => '--install-extension ' + extensionId).join(' ');
     const downloadUrl = serverDownloadUrlTemplate
         .replace(/\$\{quality\}/g, quality)
         .replace(/\$\{version\}/g, version)
