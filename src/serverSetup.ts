@@ -8,7 +8,7 @@ export interface ServerInstallOptions {
     quality: string;
     commit: string;
     version: string;
-    release?: string; // vscodium specific
+    release?: string;
     extensionIds: string[];
     envVariables: string[];
     useSocketPath: boolean;
@@ -55,7 +55,6 @@ export async function installCodeServer(
         envVariables
     }));
 
-    // detect platform and shell for windows
     if (!platform || platform === 'windows') {
         logger.trace('[serverSetup] detecting platform via uname -s');
         const result = await conn.exec('uname -s');
@@ -264,17 +263,20 @@ function buildUnixInstallCommand(scriptContent: string, remoteScriptPath: string
     const normalizedPath = remoteScriptPath.replace(/^\/+/, '');
     const pathParts = normalizedPath.split('/').filter(Boolean);
 
+    if (pathParts.length === 0) {
+        throw new ServerInstallError('Invalid remote script path');
+    }
+
     const pythonListLiteral = `[${pathParts.map(part => `'${escapeForPythonSingleQuoted(part)}'`).join(', ')}]`;
 
     const pythonCode =
         `import base64, pathlib; ` +
         `parts = ${pythonListLiteral}; ` +
-        `p = pathlib.Path.home(); ` +
-        `for part in parts[:-1]: p = p / part; ` +
-        `p.mkdir(parents=True, exist_ok=True); ` +
-        `f = p / parts[-1]; ` +
-        `f.write_bytes(base64.b64decode('${scriptBase64}')); ` +
-        `print('[serverSetup:${scriptId}] python3 wrote script to ' + str(f))`;
+        `dir_path = pathlib.Path.home().joinpath(*parts[:-1]); ` +
+        `dir_path.mkdir(parents=True, exist_ok=True); ` +
+        `file_path = dir_path / parts[-1]; ` +
+        `file_path.write_bytes(base64.b64decode('${scriptBase64}')); ` +
+        `print('[serverSetup:${scriptId}] python3 wrote script to ' + str(file_path))`;
 
     return [
         `echo "[serverSetup:${scriptId}] begin remote command"`,
