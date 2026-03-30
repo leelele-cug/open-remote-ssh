@@ -48,20 +48,20 @@ export async function installCodeServer(
 ): Promise<ServerInstallResult> {
     let shell = 'powershell';
 
-    logger.trace('[serverSetup] installCodeServer start', {
+    logger.trace('[serverSetup] installCodeServer start: ' + JSON.stringify({
         platform,
         useSocketPath,
         extensionIds,
         envVariables
-    });
+    }));
 
     // detect platform and shell for windows
     if (!platform || platform === 'windows') {
         logger.trace('[serverSetup] detecting platform via uname -s');
         const result = await conn.exec('uname -s');
 
-        logger.trace('[serverSetup] uname -s stdout:', result.stdout);
-        logger.trace('[serverSetup] uname -s stderr:', result.stderr);
+        logger.trace('[serverSetup] uname -s stdout:\n' + result.stdout);
+        logger.trace('[serverSetup] uname -s stderr:\n' + result.stderr);
 
         if (result.stdout) {
             if (result.stdout.includes('windows32')) {
@@ -69,6 +69,8 @@ export async function installCodeServer(
             } else if (result.stdout.includes('MINGW64')) {
                 platform = 'windows';
                 shell = 'bash';
+            } else {
+                logger.trace('[serverSetup] uname indicates non-windows platform');
             }
         } else if (result.stderr) {
             if (result.stderr.includes('FullyQualifiedErrorId : CommandNotFoundException')) {
@@ -83,8 +85,6 @@ export async function installCodeServer(
 
         if (platform) {
             logger.trace(`[serverSetup] Detected platform: ${platform}, shell: ${shell}`);
-        } else {
-            logger.trace('[serverSetup] Platform not detected from uname, treating as non-windows');
         }
     }
 
@@ -105,7 +105,7 @@ export async function installCodeServer(
         serverDownloadUrlTemplate: serverDownloadUrlTemplate || vscodeServerConfig.serverDownloadUrlTemplate || DEFAULT_DOWNLOAD_URL_TEMPLATE,
     };
 
-    logger.trace('[serverSetup] install options prepared', {
+    logger.trace('[serverSetup] install options prepared: ' + JSON.stringify({
         id: installOptions.id,
         version: installOptions.version,
         commit: installOptions.commit,
@@ -114,7 +114,7 @@ export async function installCodeServer(
         serverApplicationName: installOptions.serverApplicationName,
         serverDataFolderName: installOptions.serverDataFolderName,
         serverDownloadUrlTemplate: installOptions.serverDownloadUrlTemplate
-    });
+    }));
 
     let commandOutput: { stdout: string; stderr: string };
 
@@ -122,7 +122,7 @@ export async function installCodeServer(
         const installServerScript = generatePowerShellInstallScript(installOptions);
 
         logger.trace('[serverSetup] Windows install script generated');
-        logger.trace('Server install command:', installServerScript);
+        logger.trace('Server install script:\n' + installServerScript);
 
         const installDir = `$HOME\\${vscodeServerConfig.serverDataFolderName}\\install`;
         const installScript = `${installDir}\\${vscodeServerConfig.commit}.ps1`;
@@ -145,7 +145,7 @@ export async function installCodeServer(
 
             command = `powershell "md -Force ${installDir}" && powershell "echo '${script}'" > ${installScript.replace('$HOME', '%USERPROFILE%')} && powershell -ExecutionPolicy ByPass -File "${installScript.replace('$HOME', '%USERPROFILE%')}"`;
 
-            logger.trace('[serverSetup] Command length (8191 max):', command.length);
+            logger.trace('[serverSetup] Command length (8191 max): ' + command.length);
 
             if (command.length > 8191) {
                 throw new ServerInstallError(`Command line too long`);
@@ -154,39 +154,39 @@ export async function installCodeServer(
             throw new ServerInstallError(`Not supported shell: ${shell}`);
         }
 
-        logger.trace('[serverSetup] executing windows install command');
+        logger.trace('[serverSetup] executing windows install command:\n' + command);
         commandOutput = await conn.execPartial(command, (stdout: string) => endRegex.test(stdout));
     } else {
         const installServerScript = generateBashInstallScript(installOptions);
 
         logger.trace('[serverSetup] Unix install script generated');
-        logger.trace('[serverSetup] Server install script content:', installServerScript);
+        logger.trace('[serverSetup] Server install script content:\n' + installServerScript);
 
         const remoteScriptName = `${vscodeServerConfig.commit}-${scriptId}.sh`;
-        const remoteScriptPath = `~/${vscodeServerConfig.serverDataFolderName}/install/${remoteScriptName}`;
+        const remoteScriptPath = `$HOME/${vscodeServerConfig.serverDataFolderName}/install/${remoteScriptName}`;
         const endRegex = new RegExp(`${scriptId}: end`);
 
-        logger.trace('[serverSetup] remote script path:', remoteScriptPath);
+        logger.trace('[serverSetup] remote script path:\n' + remoteScriptPath);
 
         const command = buildUnixInstallCommand(installServerScript, remoteScriptPath, scriptId);
 
-        logger.trace('[serverSetup] executing unix install command:', command);
+        logger.trace('[serverSetup] executing unix install command:\n' + command);
 
         commandOutput = await conn.execPartial(command, (stdout: string) => endRegex.test(stdout));
     }
 
     if (commandOutput.stderr) {
-        logger.trace('[serverSetup] Server install command stderr:', commandOutput.stderr);
+        logger.trace('[serverSetup] Server install command stderr:\n' + commandOutput.stderr);
     }
-    logger.trace('[serverSetup] Server install command stdout:', commandOutput.stdout);
+    logger.trace('[serverSetup] Server install command stdout:\n' + commandOutput.stdout);
 
     const resultMap = parseServerInstallOutput(commandOutput.stdout, scriptId);
     if (!resultMap) {
-        logger.trace('[serverSetup] Failed to parse install script output. Raw stdout:', commandOutput.stdout);
+        logger.trace('[serverSetup] Failed to parse install script output. Raw stdout:\n' + commandOutput.stdout);
         throw new ServerInstallError(`Failed parsing install script output`);
     }
 
-    logger.trace('[serverSetup] parsed install result map:', resultMap);
+    logger.trace('[serverSetup] parsed install result map: ' + JSON.stringify(resultMap));
 
     const exitCode = parseInt(resultMap.exitCode, 10);
     if (exitCode !== 0) {
@@ -201,7 +201,7 @@ export async function installCodeServer(
         Object.entries(resultMap).filter(([key]) => envVariables.includes(key))
     );
 
-    logger.trace('[serverSetup] installCodeServer success', {
+    logger.trace('[serverSetup] installCodeServer success: ' + JSON.stringify({
         exitCode,
         listeningOn,
         connectionToken: resultMap.connectionToken,
@@ -211,7 +211,7 @@ export async function installCodeServer(
         platform: resultMap.platform,
         tmpDir: resultMap.tmpDir,
         remoteEnvVars
-    });
+    }));
 
     return {
         exitCode,
@@ -248,41 +248,46 @@ function parseServerInstallOutput(str: string, scriptId: string): { [k: string]:
         if (!line.trim()) {
             continue;
         }
-        const [key, value] = line.split('==');
-        resultMap[key] = value;
+
+        const match = line.match(/^([^=]+)==(.*)==$/);
+        if (match) {
+            resultMap[match[1]] = match[2];
+        }
     }
 
     return resultMap;
 }
 
 /**
- * 为 Unix-like 系统构建一个尽量兼容默认 shell（包括 csh/tcsh）的启动命令：
- * 1. 创建安装目录
- * 2. 将 bash 脚本内容以 base64 形式落盘为 .sh 文件
- * 3. chmod +x
- * 4. 使用 bash 执行该脚本
+ * Unix-like 系统安装命令：
+ * - 尽量避免默认 shell（特别是 csh/tcsh）解析复杂语法
+ * - 只做三件事：
+ *   1. mkdir -p
+ *   2. python3 落盘 bash 脚本
+ *   3. bash 执行脚本
  */
 function buildUnixInstallCommand(scriptContent: string, remoteScriptPath: string, scriptId: string): string {
     const scriptBase64 = Buffer.from(scriptContent, 'utf8').toString('base64');
     const remoteDir = remoteScriptPath.replace(/\/[^/]+$/, '');
 
-    // 尽量使用 csh/tcsh 可接受的简单语法
-    // 输出的调试前缀统一使用 [serverSetup:<id>]，避免影响结果解析
+    const pythonCode =
+        `import base64, os, pathlib; ` +
+        `p = pathlib.Path(os.path.expandvars('${escapeForPythonSingleQuoted(remoteScriptPath)}')); ` +
+        `p.parent.mkdir(parents=True, exist_ok=True); ` +
+        `p.write_bytes(base64.b64decode('${scriptBase64}')); ` +
+        `print('[serverSetup:${scriptId}] python3 wrote script to ' + str(p))`;
+
     return [
         `echo "[serverSetup:${scriptId}] begin remote command"`,
         `echo "[serverSetup:${scriptId}] target script path: ${escapeForDoubleQuotedEcho(remoteScriptPath)}"`,
-        `mkdir -p ${quoteForDoubleQuotes(remoteDir)}`,
+        `mkdir -p "${escapeForDoubleQuotedEcho(remoteDir)}"`,
         `echo "[serverSetup:${scriptId}] ensured install dir: ${escapeForDoubleQuotedEcho(remoteDir)}"`,
-        `if command -v python3 >/dev/null 2>&1; then echo "[serverSetup:${scriptId}] using python3 to write script"; python3 -c "import base64,pathlib; p=pathlib.Path('${escapeForPythonSingleQuoted(remoteScriptPath)}').expanduser(); p.write_bytes(base64.b64decode('${scriptBase64}')); print('[serverSetup:${scriptId}] python3 wrote script to', str(p))"`,
-        `else if command -v python >/dev/null 2>&1; then echo "[serverSetup:${scriptId}] using python to write script"; python -c "import base64,os; p=os.path.expanduser('${escapeForPythonSingleQuoted(remoteScriptPath)}'); open(p,'wb').write(base64.b64decode('${scriptBase64}')); print('[serverSetup:${scriptId}] python wrote script to', p)"`,
-        `else echo "[serverSetup:${scriptId}] using base64 -d to write script"; printf '%s' '${scriptBase64}' | base64 -d > ${quoteForSingleQuotes(remoteScriptPath)}`,
-        `endif`,
-        `endif`,
+        `python3 -c "${escapeForDoubleQuotedPython(pythonCode)}"`,
         `echo "[serverSetup:${scriptId}] checking script file existence"`,
-        `ls -l ${quoteForSingleQuotes(remoteScriptPath)} || echo "[serverSetup:${scriptId}] ls failed for script path"`,
-        `chmod 700 ${quoteForSingleQuotes(remoteScriptPath)}`,
+        `ls -l "${escapeForDoubleQuotedEcho(remoteScriptPath)}"`,
+        `chmod 700 "${escapeForDoubleQuotedEcho(remoteScriptPath)}"`,
         `echo "[serverSetup:${scriptId}] chmod done, invoking bash"`,
-        `bash ${quoteForSingleQuotes(remoteScriptPath)}`
+        `bash "${escapeForDoubleQuotedEcho(remoteScriptPath)}"`
     ].join(' ; ');
 }
 
@@ -300,6 +305,14 @@ function escapeForPythonSingleQuoted(value: string): string {
 
 function escapeForDoubleQuotedEcho(value: string): string {
     return value.replace(/(["\\$`])/g, '\\$1');
+}
+
+function escapeForDoubleQuotedPython(value: string): string {
+    return value
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"')
+        .replace(/\$/g, '\\$')
+        .replace(/`/g, '\\`');
 }
 
 function generateBashInstallScript({
