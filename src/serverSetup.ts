@@ -258,14 +258,6 @@ function parseServerInstallOutput(str: string, scriptId: string): { [k: string]:
     return resultMap;
 }
 
-/**
- * Unix-like 系统安装命令：
- * - 尽量避免默认 shell（特别是 csh/tcsh）解析复杂语法
- * - 只做三件事：
- *   1. mkdir -p
- *   2. python3 落盘 bash 脚本
- *   3. bash 执行脚本
- */
 function buildUnixInstallCommand(scriptContent: string, remoteScriptPath: string, scriptId: string): string {
     const scriptBase64 = Buffer.from(scriptContent, 'utf8').toString('base64');
     const remoteDir = remoteScriptPath.replace(/\/[^/]+$/, '');
@@ -289,14 +281,6 @@ function buildUnixInstallCommand(scriptContent: string, remoteScriptPath: string
         `echo "[serverSetup:${scriptId}] chmod done, invoking bash"`,
         `bash "${escapeForDoubleQuotedEcho(remoteScriptPath)}"`
     ].join(' ; ');
-}
-
-function quoteForSingleQuotes(value: string): string {
-    return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function quoteForDoubleQuotes(value: string): string {
-    return `"${value.replace(/(["\\$`])/g, '\\$1')}"`;
 }
 
 function escapeForPythonSingleQuoted(value: string): string {
