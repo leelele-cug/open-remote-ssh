@@ -161,7 +161,8 @@ export async function installCodeServer(
         logger.trace('[serverSetup] Unix install script generated');
         logger.trace('[serverSetup] Server install script content:\n' + installServerScript);
 
-        const remoteScriptName = `${vscodeServerConfig.commit}-${scriptId}.sh`;
+        // 固定脚本名：按 commit 命名，存在则覆盖
+        const remoteScriptName = `${vscodeServerConfig.commit}.sh`;
         const remoteScriptPath = `${vscodeServerConfig.serverDataFolderName}/install/${remoteScriptName}`;
         const endRegex = new RegExp(`${scriptId}: end`);
 
